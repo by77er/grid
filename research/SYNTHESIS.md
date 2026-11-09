@@ -1,8 +1,12 @@
 # Synthesis
 
 What the research in this directory says about how `grid` should be built. Each claim points
-at the file that carries the evidence and sources. Status: first sweep (01–12) incorporated;
-second sweep (13–17) incorporated where noted.
+at the file that carries the evidence and sources. Both sweeps are incorporated. The
+second sweep (13–17) read source code and API specs and corrected several first-sweep claims;
+where the two disagree, the second-sweep file wins and lists the correction.
+
+Nothing here was run against real hardware or a live provider account. Section 4 lists what
+only an experiment can settle.
 
 ## 1. The gap grid fills
 
@@ -32,7 +36,10 @@ restarting from scratch.
 | A few bad nodes cause most failures | A persistent strike list keyed on GPU and host identity is high leverage | 04 |
 | SKU name does not determine hardware (SXM vs PCIe, power caps, CPU per GPU, driver version) | Every node gets fingerprinted and benchmarked; scheduling keys on the measured class | 06 |
 | Host driver decides which CUDA / PyTorch image runs | Image is chosen per node from the fingerprint | 06 |
-| RunPod default spend limit is $80/hour | Quota and spend caps are first-class errors, distinct from stockout | 07 |
+| RunPod default spend limit is $80/hour | Quota and spend caps are first-class errors, distinct from stockout | 07, 16 |
+| RunPod stockout is HTTP 400 with free text, the same status as a rule violation | The driver must classify errors by comparing outcomes across candidates | 16 |
+| RunPod spot is retired; REST v1 retires 2026-11-15 | Model RunPod as on-demand only, through REST v2 | 16 |
+| A RunPod Instant Cluster cannot be resized and its pods cannot be deleted individually | It is a fixed-size island; repair inside it means replacing the island or shrinking the job | 16 |
 
 ## 3. Architecture the research points to
 
@@ -54,6 +61,11 @@ and one hardware class.
   parameter deltas every H steps over TCP or object storage (08). This is the only approach
   with LLM-scale evidence on slow links, and its quality cost is contested by independent
   replications, so it has to be opt-in and measurable.
+  No surveyed library works as this transport on RunPod-style pods without patching. The
+  recommendation is to build a small coordinator with an object-store data plane and an HTTP
+  control interface, reusing `torchft`'s DiLoCo hooks and an existing delta codec (14).
+  Object-store relay was used at 72B parameters, and needs zero-egress storage to be
+  affordable (14).
 - Provider objects map onto this: a `Fabric` (RunPod Instant Cluster, Nebius GPU cluster,
   Crusoe IB partition) is created first and nodes are created into it (07).
 
@@ -68,12 +80,16 @@ inside one (10).
   the driver needs a candidate ladder and list-before-retry (07).
 - Separate a provisioning deadline from a run deadline (01).
 - Capability flags are per offer, not per provider (07).
+- On RunPod, IPs and port mappings come from a per-pod GET, not the list call; ownership has
+  to be encoded in the pod name because tags cannot be set and creates have no idempotency
+  key (16).
 
 ### Rank plan
 
 - grid assigns ranks centrally and sets `RANK`, `WORLD_SIZE`, `LOCAL_RANK`, `MASTER_ADDR`,
-  `MASTER_PORT` directly; `torchrun`'s dynamic rendezvous is avoided because its ranks follow
-  sorted addresses and are documented as unstable (03).
+  `MASTER_PORT` directly, or uses `torchrun`'s static mode (`--node-rank`, `--master-addr`),
+  which supports unequal process counts per node (13). Dynamic rendezvous is avoided because
+  its ranks follow sorted addresses and are documented as unstable (03).
 - Ranks belong to stable logical slots. A replacement node inherits the slot, so data
   sharding and per-rank checkpoint files stay valid (03).
 - Rank order encodes placement: adjacent ranks share a node, because Megatron and torchtitan
@@ -109,6 +125,27 @@ retry budget (04, modelled on JobSet failure rules and Ray's separate preemption
 | Stockout on replace | Provider error taxonomy | Walk SKU / data-center / provider ladder; shrink DP |
 | Suspected silent corruption | Deterministic step replay | Roll back to an older checkpoint generation |
 
+Recovery modes, in the order grid can realistically offer them (13):
+
+1. Whole-group restart with grid-owned rendezvous and fail-fast kill. PyTorch's legacy
+   watchdog can take up to 10 minutes to notice a silent peer death, so the agent must kill
+   ranks itself.
+2. Hot-spare swap at fixed world size.
+3. In-process re-form of the communicator. Stock PyTorch has `shrink_group()` (2.10+) and
+   `init_process_group(enable_reconfigure=True)` (2.14+, private API). This corrects the first
+   sweep, which said no mainstream stack keeps survivors alive.
+4. Shrink-and-continue on the data-parallel dimension, with `torchft` replica groups as the
+   working precedent.
+
+Modes 3 and 4 are unproven over TCP and at scale.
+
+Resuming on a different cluster shape depends on the job's checkpoint format (15). Only
+formats that store tensors by name with a global shape can be resharded (PyTorch Distributed
+Checkpoint, Megatron `torch_dist`); anything keyed by rank is locked to its shape, and
+optimizer state is the binding constraint. File 15 proposes a portable checkpoint contract:
+logical addressing, progress in global units, a data cursor independent of world size, and a
+hashed manifest as commit marker. Jobs that do not meet it get same-shape restore only.
+
 Checkpoints live in object storage, not provider volumes (RunPod network volumes are pinned to
 a data center and attach only at creation) (04, 07). Cadence follows Young/Daly; asynchronous
 sharded checkpointing is the main lever on overhead (04).
@@ -124,9 +161,14 @@ a router, autoscaler, drain protocol and rollout controller (11).
 - Routing on queue depth plus prefix-cache affinity; precise cache-aware routing was worth
   about 2x in llm-d's benchmark (11).
 - Autoscale on engine queue depth and KV-cache saturation, not GPU utilisation (11).
-- Readiness is a real generation with a tokens/s floor, not `/health` (10, 11).
-- Mid-stream failover by replaying prompt plus emitted tokens on another replica makes spot
-  capacity usable for interactive traffic (11).
+- Readiness is a real generation with a tokens/s floor, not `/health` (10, 11). vLLM exits on
+  engine death and reports a dying stream as an error chunk under HTTP 200, so the router has
+  to parse stream bodies (17).
+- Among routers that run without Kubernetes, only SGLang Model Gateway has an HTTP API for
+  adding and removing workers plus active health checks (17).
+- Mid-stream failover by replaying prompt plus emitted tokens on another replica makes
+  preemptible capacity usable for interactive traffic (11). No existing router does this for
+  plain vLLM or SGLang backends; grid would have to write it (17).
 
 ### RL
 
@@ -151,10 +193,14 @@ These recur across files and cannot be resolved by reading:
 3. Time-to-ready distributions (p50/p95/p99) per provider, and real API rate limits and pod
    count caps.
 4. Whether `podCount` above 8 is reachable without sales, and what a partial fill looks like.
-5. RunPod spot: whether it still exists and the real notice period.
+5. The exact error strings RunPod returns for stockout, spend cap and rule violations, and
+   whether cluster creation is all-or-nothing.
 6. DiLoCo outer-loop quality at the scales grid targets, against a synchronous baseline on
    downstream evals.
-7. Cross-pod TCP throughput and object-store throughput from marketplace hosts, which set the
+7. Whether communicator shrink and re-form complete over the socket transport when a peer
+   vanishes, and how long they take at 64–512 ranks.
+8. Whether a save-at-shape-A, load-at-shape-B resume actually works in the target frameworks.
+9. Cross-pod TCP throughput and object-store throughput from marketplace hosts, which set the
    default sync interval and quantisation.
 
 A probe harness that answers 1–5 is the natural first piece of code.

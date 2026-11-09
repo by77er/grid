@@ -46,3 +46,7 @@ side of RL training loops.
 
 - Every non-obvious claim carries a source URL. Claims that could not be verified are marked `(unverified)`.
 - Each file ends with **Implications for grid** and **Open questions**.
+- Files 01–12 were not edited after the second sweep. Files 13–17 each have a
+  **Corrections to first sweep** section; where they disagree with 01–12, they take precedence.
+- Nothing was run on real hardware or against a live provider account. All findings come from
+  docs, specs, source code, papers and issue threads read on 2026-11-09.
