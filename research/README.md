@@ -32,6 +32,16 @@ side of RL training loops.
 | 11 | `11-serving-fleet-orchestration.md` | Fleet-level serving: routing (cache-aware), autoscaling, cold starts, health checking, failure recovery, spot handling, multi-region/provider replicas. |
 | 12 | `12-inference-for-rl.md` | Inference inside RL loops: actor/learner architectures, throughput-oriented generation, weight sync from trainer to servers, co-scheduling training and inference on one cluster. |
 
+### Second sweep (gap closing from source code and specs)
+
+| # | File | Question |
+|---|------|----------|
+| 13 | `13-in-place-repair-elasticity.md` | Can survivors keep running when a node dies? NCCL shrink/grow, PyTorch support, TorchElastic internals, NVIDIA resiliency tooling. |
+| 14 | `14-cross-island-sync-implementations.md` | Code grid could adopt for the slow-link tier (PCCL, hivemind, DiLoCo implementations, object-store relay), for training and RL weight broadcast. |
+| 15 | `15-checkpoint-resharding-data-resume.md` | What lets a job resume on a different cluster shape: checkpoint formats, resharding, world-size-independent data resume. |
+| 16 | `16-provider-apis-ground-truth.md` | Exact RunPod (and peer) API shapes, how SkyPilot/dstack drive them, and user-reported problems. |
+| 17 | `17-serving-source-checks.md` | vLLM/SGLang/router behaviour verified at current versions: death semantics, weight updates, non-Kubernetes routers, mid-stream failover. |
+
 ## Conventions
 
 - Every non-obvious claim carries a source URL. Claims that could not be verified are marked `(unverified)`.
