@@ -21,6 +21,17 @@ independently, with sources cited inline. `SYNTHESIS.md` pulls the threads toget
 | 08 | `08-heterogeneous-distributed-training.md` | Training algorithms that tolerate heterogeneous / slow / unreliable links and nodes: local SGD, DiLoCo, async methods, straggler mitigation, heterogeneity-aware data parallelism. |
 | 09 | `09-fast-bootstrap-preflight.md` | What dominates time-to-first-step: image pulls, data/checkpoint staging, node mesh setup, and preflight health checks / burn-in; how to make each fast. |
 
+### Serving (added scope)
+
+`grid` should also cover **serving** LLMs, both for direct consumption and as the inference
+side of RL training loops.
+
+| # | File | Question |
+|---|------|----------|
+| 10 | `10-inference-engines.md` | vLLM, SGLang, TGI, TensorRT-LLM/Triton, Dynamo, llama.cpp: how each is launched and scaled across GPUs/nodes, and how hardware and heterogeneity affect them. |
+| 11 | `11-serving-fleet-orchestration.md` | Fleet-level serving: routing (cache-aware), autoscaling, cold starts, health checking, failure recovery, spot handling, multi-region/provider replicas. |
+| 12 | `12-inference-for-rl.md` | Inference inside RL loops: actor/learner architectures, throughput-oriented generation, weight sync from trainer to servers, co-scheduling training and inference on one cluster. |
+
 ## Conventions
 
 - Every non-obvious claim carries a source URL. Claims that could not be verified are marked `(unverified)`.
