@@ -42,6 +42,12 @@ side of RL training loops.
 | 16 | `16-provider-apis-ground-truth.md` | Exact RunPod (and peer) API shapes, how SkyPilot/dstack drive them, and user-reported problems. |
 | 17 | `17-serving-source-checks.md` | vLLM/SGLang/router behaviour verified at current versions: death semantics, weight updates, non-Kubernetes routers, mid-stream failover. |
 
+### Design-space studies
+
+| # | File | Question |
+|---|------|----------|
+| 18 | `18-state-transfer-design-space.md` | Weight transfer and checkpoint methods as a selectable, tunable axis: the catalogue of methods, the trade-off axes, the knobs for sitting between methods, and how grid exposes the choice. |
+
 ## Conventions
 
 - Every non-obvious claim carries a source URL. Claims that could not be verified are marked `(unverified)`.
