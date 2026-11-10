@@ -182,6 +182,39 @@ sandbox fleet, and a control node (12). On top of training and serving it needs:
 - a private control network, since the engines' weight-update endpoints are unauthenticated;
 - metrics for tuning the actor-to-learner ratio.
 
+### State movement as a selectable axis
+
+How model state moves and persists is not one mechanism. It is chosen per purpose and tunable
+between methods (18).
+
+- **Seven purposes, each with its own policy:** durable recovery, fast local restart, joining
+  or replacement node, cross-island sync, RL weight updates, serving rollout, and migration to
+  a different shape or provider. The cheapest method for one can be unsafe for another.
+- **Payload and codec matter more than transport.** At 70B parameters, full training state is
+  about 945 GB, bf16 weights 140 GB, an int8 delta 70 GB, and a sparse top-k delta about
+  1.9 GB: a 500x spread (derived in 18).
+- **Six orthogonal fields describe every method:** `payload`, `codec`, `transport`, `trigger`,
+  `commit`, `retention`, plus an optional `fallback` ladder. Picking a method is choosing a
+  named preset; compromising is overriding one field.
+- **Dials between methods:** checkpoint interval, mix of local / buddy / durable tiers,
+  full-copy interval for delta chains, optimizer cadence relative to weights, bit-width and
+  density of lossy deltas, sync interval and quorum across islands, and a staleness bound for
+  RL.
+- **A cost model picks defaults.** From parameter count, measured link and storage rates,
+  failure-rate estimate and step time, grid predicts overhead, bytes and dollars for the chosen
+  policy and its alternatives.
+- **Static validation refuses unsafe combinations**, for example a lossy codec as the only
+  durable copy, a delta chain with no full copy, a rank-keyed format used for migration, or a
+  local-only copy on a pod's container disk.
+- **Two derived results revise earlier advice.** On pods whose disk dies with the node, a
+  local checkpoint tier without replication to a second node is worse than asynchronous save
+  straight to durable storage when most failures lose the node. And the Young/Daly interval in
+  file 04 holds only for blocking saves; asynchronous saves add a term for background persist
+  time.
+- **Job cooperation.** Transport, tiering, retention, hashing and commit work with only a
+  directory protocol. Payload splitting, lossy codecs, live peer pull and collective push to
+  engines need hooks in the training job.
+
 ## 4. What only an experiment can settle
 
 These recur across files and cannot be resolved by reading:
@@ -202,5 +235,8 @@ These recur across files and cannot be resolved by reading:
 8. Whether a save-at-shape-A, load-at-shape-B resume actually works in the target frameworks.
 9. Cross-pod TCP throughput and object-store throughput from marketplace hosts, which set the
    default sync interval and quantisation.
+
+10. Pod-to-object-store upload throughput and lossless delta ratios between nearby
+    checkpoints, which set every checkpoint-interval number in file 18.
 
 A probe harness that answers 1–5 is the natural first piece of code.
