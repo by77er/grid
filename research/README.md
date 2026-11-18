@@ -47,6 +47,7 @@ side of RL training loops.
 | # | File | Question |
 |---|------|----------|
 | 18 | `18-state-transfer-design-space.md` | Weight transfer and checkpoint methods as a selectable, tunable axis: the catalogue of methods, the trade-off axes, the knobs for sitting between methods, and how grid exposes the choice. |
+| 19 | `19-cost-optimal-provider-selection.md` | How to pick the cheapest provider and offer for a rental, spot included: programmatic price and availability sources per provider, spot terms and interruption data, an expected-total-cost model, normalising offers by measured speed, prior art, and a catalogue and ranking design. |
 
 ## Conventions
 
@@ -55,4 +56,7 @@ side of RL training loops.
 - Files 01–12 were not edited after the second sweep. Files 13–17 each have a
   **Corrections to first sweep** section; where they disagree with 01–12, they take precedence.
 - Nothing was run on real hardware or against a live provider account. All findings come from
-  docs, specs, source code, papers and issue threads read on 2026-11-09.
+  docs, specs, source code, papers and issue threads read on 2026-11-09 (18: 2026-11-10;
+  19: 2026-11-18, which also read a few public, unauthenticated price endpoints to confirm field
+  names).
+- Design-space studies (18, 19) mark each statement as fact [F], derived [D] or proposal [P].

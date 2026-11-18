@@ -38,7 +38,8 @@ restarting from scratch.
 | Host driver decides which CUDA / PyTorch image runs | Image is chosen per node from the fingerprint | 06 |
 | RunPod default spend limit is $80/hour | Quota and spend caps are first-class errors, distinct from stockout | 07, 16 |
 | RunPod stockout is HTTP 400 with free text, the same status as a rule violation | The driver must classify errors by comparing outcomes across candidates | 16 |
-| RunPod spot is retired; REST v1 retires 2026-11-15 | Model RunPod as on-demand only, through REST v2 | 16 |
+| RunPod spot is retired (re-confirmed 2026-11-18); REST v1 was retired on 2026-11-15 | Model RunPod as on-demand only, through REST v2. Spot comes from other providers, whose notice runs from none (Verda, Hyperstack) to 2 minutes (AWS, CoreWeave) | 16, 19 |
+| List prices for the same 8x H100 node differ 7x across providers and drift within days | Rank on live prices and expected total cost, never on prices copied into config | 19 |
 | A RunPod Instant Cluster cannot be resized and its pods cannot be deleted individually | It is a fixed-size island; repair inside it means replacing the island or shrinking the job | 16 |
 
 ## 3. Architecture the research points to
@@ -215,6 +216,63 @@ between methods (18).
   directory protocol. Payload splitting, lossy codecs, live peer pull and collective push to
   engines need hooks in the training job.
 
+### Cost-optimal provider selection, including spot
+
+How grid picks the cheapest offer for a rental (19).
+
+- **Live prices are readable by program almost everywhere.** AWS bulk files, Azure Retail Prices,
+  Nebius spot prices, Verda instance types and Shadeform instance types answer without an
+  account. RunPod, Vast, Lambda, Prime Intellect, TensorDock, Hyperstack and GCP need the user's
+  key. CoreWeave and Crusoe publish only web pages, so grid keeps a dated, hand-maintained file
+  for them.
+- **Terms of use shape the cache.** Vast forbids caching and price indexes built from its data.
+  RunPod, TensorDock and Verda forbid scraping their sites. grid queries APIs with the user's own
+  credentials, caches marketplace offers for about a minute, re-checks just before each create,
+  and never pools prices across users.
+- **Spot exists today** at AWS, GCP, Azure, Nebius (dynamic, uncapped price), CoreWeave (fixed
+  list), Vast (bid), Verda (fixed 50%, no notice), Hyperstack (no notice, nothing survives),
+  Shadeform and Prime Intellect. It does not exist at RunPod or Lambda, and goes through sales at
+  Crusoe. Only the hyperscalers and Vast publish any interruption data, so grid learns preemption
+  rates from its own telemetry, starting from a pessimistic prior.
+- **Rank on expected cost per useful work, not sticker price.** The expected cost adds:
+  - billed boot time per start;
+  - billing increments;
+  - failed-preflight waste;
+  - storage billed while stopped or waiting;
+  - transfer charges;
+  - checkpoint and rework overhead from the extended Young/Daly formula of 18, with notice
+    salvage when a save fits in the notice.
+
+  Offers are first filtered on hard constraints (interconnect tier, form factor, memory, region).
+  They are then scaled by a measured speed factor from preflight. An island is priced at its
+  slowest node.
+- **Worked example (one 8x H100 node, 24 h of work, Nebius):**
+  - on-demand costs $878;
+  - spot costs $415-484 for per-node preemption intervals of 24 h to 2 h;
+  - the cost of spot is dominated by restart time, not checkpoint cost.
+
+  On AWS with an external checkpoint store, spot's 12x more upload bytes turn a $550 saving into
+  a $531 loss. Checkpoint store placement belongs in the cost model.
+- **Spot belongs where a preemption loses one unit, not the job.** That means:
+  - whole DiLoCo islands;
+  - RL rollout workers;
+  - serving replicas behind failover;
+  - single-node jobs.
+
+  Synchronous islands stay on-demand. Mixing spot and on-demand inside one island is refused.
+  Rank 0, the coordinator, the learner and the checkpoint store are never on spot.
+- **Proposed components:**
+  - a `catalogue` with public, account-scoped and hand-maintained sources;
+  - an extended `Offer` record (capacity class, price kind, billing increment, storage and
+    transfer rates, preemption terms, hardware form, measured speed, quote time);
+  - `grid plan` output that shows sticker price, expected cost breakdown, wall-clock and
+    sensitivity for the top plans, which then become the acquisition candidate ladder.
+
+Earlier statements this corrects (details in 19): GCP spot notice is 0 s by default or 120 s if
+configured, not 30 s (07). CoreWeave and Hyperstack spot are documented, not hearsay (07). The
+spot capability row of 16 gains Nebius's dynamic pricing and Lambda's absence of spot. Prices in
+06 and 07 have already drifted.
+
 ## 4. What only an experiment can settle
 
 These recur across files and cannot be resolved by reading:
@@ -238,5 +296,8 @@ These recur across files and cannot be resolved by reading:
 
 10. Pod-to-object-store upload throughput and lossless delta ratios between nearby
     checkpoints, which set every checkpoint-interval number in file 18.
+11. Spot preemption rates per provider and GPU pool, outbid rates on Vast at a given margin over
+    `min_bid`, and measured speed gaps between SXM, PCIe and power-capped hosts. These set the
+    priors of file 19's cost model.
 
 A probe harness that answers 1–5 is the natural first piece of code.
